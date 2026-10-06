@@ -4,8 +4,12 @@ Pseudo-code: guides/pseudocode/04_curator.md
 Kiểm tra:    pytest tests/test_04_curator.py
 Chạy thật:   python -m lab.curator
 """
+import json
 import re
 from pathlib import Path
+
+from .model import make_model
+from .tasks import ROOT
 
 from .tasks import eval_markers   # có sẵn: định danh của tác vụ đánh giá, tính lúc chạy
 
@@ -68,7 +72,74 @@ def curate_skills(results_dir="results", source_condition="baseline", out_dir=No
     model mặc định: make_model() (lab.model).
     Trả về: danh sách đường dẫn SKILL.md đã ghi.
     """
-    raise NotImplementedError("TODO: cài đặt curate_skills (xem guides/pseudocode/04_curator.md)")
+    if out_dir is None:
+        out_dir = ROOT / "skills" / "auto"
+    out_dir = Path(out_dir)
+    source_dir = Path(results_dir) / source_condition
+    runs = []
+    for run_path in sorted(source_dir.glob("*/run.json")):
+        try:
+            record = json.loads(run_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if record.get("role") != "learn":
+            continue
+        failed = [
+            (check.get("name", ""), check.get("detail", ""))
+            for check in record.get("checks", [])
+            if not check.get("passed")
+        ]
+        if not failed:
+            continue
+        trace_path = run_path.with_name("trace.md")
+        try:
+            trace = trace_path.read_text(encoding="utf-8")[-6000:]
+        except OSError:
+            trace = ""
+        runs.append({"task": record.get("task", run_path.parent.name), "failed": failed, "trace": trace})
+
+    if not runs:
+        print("No failed checks in learning tasks; no skills generated.")
+        return []
+
+    sections = []
+    for run in runs:
+        failed_text = "\n".join(f"- {name}: {detail}" for name, detail in run["failed"])
+        sections.append(
+            f"TASK: {run['task']}\nFAILED CHECKS:\n{failed_text}\nTRACE (tail):\n{run['trace']}"
+        )
+    prompt = f"""You write concise procedural SKILL.md files for an engineering and data-analysis agent.
+
+Below are failed checks and traces from learning tasks. Infer general process improvements,
+not task-specific answers, values, filenames, or evaluation material. Write at most {max_skills}
+skills using exactly this format:
+
+=== SKILL: <name> ===
+---
+name: <name>
+description: <when to use this skill>
+---
+<short checklist, at most 40 lines>
+=== END ===
+
+Each name must be lowercase kebab-case. Each description must say when the skill applies.
+
+{chr(10).join(sections)}
+"""
+    if model is None:
+        model = make_model()
+    response = model.invoke(prompt)
+    reply = getattr(response, "content", response)
+
+    written = []
+    for name, text in parse_skill_blocks(str(reply)):
+        if len(written) >= max_skills or validate_skill(text, expected_name=name):
+            continue
+        skill_path = out_dir / name / "SKILL.md"
+        skill_path.parent.mkdir(parents=True, exist_ok=True)
+        skill_path.write_text(text.rstrip() + "\n", encoding="utf-8")
+        written.append(skill_path)
+    return written
 
 
 if __name__ == "__main__":

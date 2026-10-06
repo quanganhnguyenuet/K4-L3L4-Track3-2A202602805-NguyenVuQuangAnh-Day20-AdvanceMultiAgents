@@ -1,17 +1,16 @@
-"""GUIDE Phần 1 - Dựng tác tử (agent) bằng Deep Agents.   >>> SINH VIÊN CÀI ĐẶT make_backend VÀ build_agent <<<
+"""Build the Deep Agents used by the lab."""
 
-Pseudo-code: guides/pseudocode/01_agent.md
-Kiểm tra:    pytest tests/test_02_agent.py
-"""
+import os
+import sys
 from pathlib import Path
 
-# TODO 1: import các thành phần cần dùng, ví dụ:
-#   from deepagents import create_deep_agent
-#   from deepagents.backends import LocalShellBackend
-#   from .model import make_model
-#   from .subagents import get_subagents
+from deepagents import create_deep_agent
+from deepagents.backends import LocalShellBackend
 
-# ---- CÓ SẴN, KHÔNG SỬA: system prompt dùng chung cho mọi sinh viên (để đường cơ sở so sánh được) ----
+from .model import make_model
+from .subagents import get_subagents
+
+
 PATHS_NOTE = (
     "PATHS: every path is relative to the sandbox root and never starts with '/'. "
     "The task files are in the folder workspace/ (for example workspace/app.log). "
@@ -35,33 +34,63 @@ SUBAGENTS_NOTE = (
     "in the delegation message, because a subagent sees only what you send. "
     "Check what a subagent returns before you rely on it."
 )
-# --------------------------------------------------------------------------------------------------
 
 
 def make_backend(sandbox: Path):
-    """Tạo backend (môi trường thực thi) cho tác tử.
-
-    Yêu cầu:
-      - Thư mục gốc (root_dir) là `sandbox`; đường dẫn tương đối `workspace/...` và `skills/...`
-        phải dùng được ở CẢ công cụ tệp lẫn shell (shell chạy với thư mục làm việc = `sandbox`).
-      - Tác tử chạy được lệnh shell và gọi được `python` (cần đặt PATH).
-      - KHÔNG chuyển biến môi trường của bạn vào shell của tác tử (khóa API không được lộ).
-    """
-    raise NotImplementedError("TODO 2: cài đặt make_backend (xem guides/pseudocode/01_agent.md)")
+    """Create a shell/filesystem backend rooted at ``sandbox``."""
+    python_dir = str(Path(sys.executable).resolve().parent)
+    path_entries = [python_dir]
+    if os.name == "nt":
+        path_entries.extend([
+            os.environ.get("SystemRoot", r"C:\Windows") + r"\System32",
+            os.environ.get("SystemRoot", r"C:\Windows"),
+        ])
+        program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+        for utility_dir in (
+            Path(program_files) / "Git" / "usr" / "bin",
+            Path(program_files) / "Git" / "bin",
+        ):
+            if utility_dir.is_dir():
+                path_entries.append(str(utility_dir))
+    else:
+        path_entries.extend(["/usr/local/bin", "/usr/bin", "/bin"])
+    env = {
+        "PATH": os.pathsep.join(path_entries),
+        "HOME": str(Path(sandbox).resolve()),
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    return LocalShellBackend(
+        root_dir=sandbox,
+        virtual_mode=True,
+        inherit_env=False,
+        env=env,
+        timeout=120,
+    )
 
 
 def build_agent(sandbox: Path, mode: str = "single", use_skills: bool = False, model=None):
-    """Tạo tác tử Deep Agents.
+    """Build a Deep Agent in either single-agent or custom-subagent mode."""
+    if mode not in {"single", "subagents"}:
+        raise ValueError(f"unknown mode: {mode}")
 
-    Tham số:
-      sandbox:    thư mục chứa `workspace/` (và `skills/` nếu có).
-      mode:       "single"    -> tác tử mặc định (có subagent `general-purpose` sẵn của Deep Agents)
-                  "subagents" -> thêm các subagent từ `get_subagents()` (nối PATHS_NOTE vào `system_prompt` của MỖI subagent,
-                                 vì subagent không nhận BASE_PROMPT) và thêm SUBAGENTS_NOTE vào prompt chính
-      use_skills: True -> nạp thư mục "/skills/" qua tham số `skills=` của create_deep_agent
-                  và thêm SKILLS_NOTE vào prompt.
-      model:      mô hình ngôn ngữ; None -> dùng `make_model()`.
-    mode không hợp lệ -> ném ValueError.
-    Trả về: đồ thị (graph) đã biên dịch, gọi bằng `.invoke({"messages": [...]})`.
-    """
-    raise NotImplementedError("TODO 3: cài đặt build_agent (xem guides/pseudocode/01_agent.md)")
+    kwargs = {}
+    prompt = BASE_PROMPT
+    if mode == "subagents":
+        kwargs["subagents"] = [
+            {
+                **subagent,
+                "system_prompt": subagent["system_prompt"] + " " + PATHS_NOTE,
+            }
+            for subagent in get_subagents()
+        ]
+        prompt += SUBAGENTS_NOTE
+    if use_skills:
+        kwargs["skills"] = ["/skills/"]
+        prompt += SKILLS_NOTE
+
+    return create_deep_agent(
+        model=model if model is not None else make_model(),
+        system_prompt=prompt,
+        backend=make_backend(sandbox),
+        **kwargs,
+    )
