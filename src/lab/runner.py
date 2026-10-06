@@ -7,6 +7,7 @@ Chạy thật:   python -m lab.runner --condition baseline --tasks learn
 import argparse
 import json
 import shutil
+import sys
 import tempfile
 import time
 from datetime import datetime, timezone
@@ -84,6 +85,8 @@ def run_task(task_id: str, condition: str, results_dir="results", model=None, re
         "role": task.role,
         "error": None,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "python_version": sys.version.split()[0],
+        "recursion_limit": recursion_limit,
     }
     messages = []
     final = ""
