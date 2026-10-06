@@ -7,7 +7,7 @@
 - Model: `openai:gpt-4.1-mini`; temperature: 0; recursion limit: 60
 - Deep Agents: 0.7.21; recorded runner: Python 3.13.5 (the project venv metadata targets Python 3.11.9)
 - Platform: Windows with the local shell backend; Git Unix utilities were added to the sanitized PATH for `which`, `cat`, and `ls` compatibility.
-- Experiment budget: 21 task invocations and one curator call; 18 final run records are retained in `results/` because the pre-freeze skills-auto learning records were intentionally replaced by the post-freeze rerun.
+- Experiment budget: 22 task invocations and one curator call; 18 final run records are retained in `results/` because the pre-freeze skills-auto learning records were intentionally replaced by the post-freeze rerun.
 - Hypotheses commit: `03e261f`; freeze commit/tag: `758263c` / `freeze`.
 
 ## 2. Hypotheses (committed before evaluation)
@@ -54,7 +54,7 @@ The curator was run once on baseline learning feedback and generated three valid
 | `maintain-test-integrity` | General guidance for preserving provided tests and adding regression coverage; relevant to code tasks. |
 | `standardize-logging-and-timestamps` | General guidance for UTC timestamps, normalized services, repeated log counts, and schema metadata; relevant to log tasks. |
 
-All three passed `validate_skill` and contained no evaluation marker. The post-freeze skills-auto scores were `6/10`, `5/8`, and `1/9` on learning, and `6/11`, `5/9`, and `6/10` on evaluation. `skills_read` was 0 in every retained run, so the improvement cannot be attributed to an observed skill-read/tool trace. The post-freeze `logs-learn` run hit `GraphRecursionError` at the configured limit; the runner recorded the error and still wrote a valid scored record.
+All three passed `validate_skill` and contained no evaluation marker. The post-freeze skills-auto scores were `6/10`, `5/8`, and `1/9` on learning, and `6/11`, `5/9`, and `6/10` on evaluation. `skills_read` was 0 in every retained run, so the improvement cannot be attributed to an observed skill-read/tool trace. An initial `logs-learn` run hit the recursion limit; it was rerun at limit 100 and the final retained record completed with score 1/9 and no error.
 
 ## 7. Results comparison
 
@@ -68,7 +68,7 @@ All three passed `validate_skill` and contained no evaluation marker. The post-f
 | logs-eval | 1/10 | 0/10 | 6/10 |
 | **Mean score - learning tasks** | 0.45 | 0.32 | 0.45 |
 | **Mean score - evaluation tasks** | 0.33 | 0.37 | 0.57 |
-| **Mean tokens per run** | 69,036 | 43,323 | 127,387 |
+| **Mean tokens per run** | 69,036 | 43,323 | 84,667 |
 | **Runs that read a skill** | 0/6 | 0/6 | 0/6 |
 
 The canonical generated table is also stored in `report/table.md`. All retained runs have `skills_modified = false`; the freeze check reports `OK`.
@@ -78,9 +78,9 @@ The canonical generated table is also stored in `report/table.md`. All retained 
 1. On learning, baseline and post-freeze skills-auto both averaged 0.45, while subagents averaged 0.32. On evaluation, skills-auto was highest at 0.57, ahead of subagents at 0.37 and baseline at 0.33. The strongest transfer signal was logs-eval, where skills-auto scored 6/10 versus 1/10 baseline, while code-eval was unchanged and data-eval improved from 3/9 to 5/9.
 2. The breakdown supports the mechanism: evaluation technical checks were 10/18 for baseline, 11/18 for subagents, and 17/18 for skills-auto. House-rule checks were 0/12 for all three conditions, so the generated skills did not visibly improve those rules.
 3. The trace counter recorded `skills_read = 0` for all final runs. Thus the skills-auto evaluation gain is correlated with the condition but not proven to come from explicit skill use; it may reflect model variance, prompt/middleware effects, or the task's natural difficulty.
-4. Mean token cost was 69,036 for baseline, 43,323 for subagents, and 127,387 for skills-auto. Subagents were the cheapest condition in this sample, while skills-auto had the highest cost and therefore the lowest score-per-token efficiency despite the best evaluation score.
+4. Mean token cost was 69,036 for baseline, 43,323 for subagents, and 84,667 for skills-auto. Subagents were the cheapest condition in this sample, while skills-auto had the highest cost despite the best evaluation score.
 5. The curator filters evaluation roles and rejects evaluation markers before writing skills. The three generated files passed structural validation, but validation cannot prove substantive correctness; the zero `skills_read` count also limits the strength of any causal claim.
-6. One post-freeze skills-auto learning run reached the recursion limit. It is retained in `results/` and reported as an error rather than hidden, preserving reproducibility.
+6. One post-freeze skills-auto learning run initially reached the recursion limit; rerunning that task at limit 100 completed successfully, and the final retained artifacts contain no run error.
 
 ## 9. Limitations and validity
 
@@ -88,11 +88,11 @@ The canonical generated table is also stored in `report/table.md`. All retained 
 2. Only one model and one temperature were tested; the result may not generalize to other providers or tool-calling models.
 3. The local backend runs shell commands with host permissions; the temporary directory is isolated by convention, not by an operating-system sandbox.
 4. The generated skills were validated structurally, but no retained run explicitly read a skill according to `skills_read`; behavioral attribution is therefore weak.
-5. The evaluation run for `logs-learn` reached recursion limit, so its low score is partly a budget/termination outcome rather than a clean comparison of completed work.
+5. The initial `logs-learn` retry reached the recursion limit, so the final record uses a higher limit and should be compared with awareness that it had a different budget from the other 60-step runs.
 
 ## 10. Conclusion
 
-The harness, subagent mode, runner, curator, tests, experiments, freeze tag, and report artifacts are complete. Skills-auto had the highest evaluation mean (0.57 versus 0.33 baseline) and a large logs-eval improvement, but it used the most tokens and did not improve house-rule checks. The result is promising but not causal because no run recorded an explicit skill read and only one model/run was used. Repeated post-freeze runs with a lower recursion failure rate would be the next validation step.
+The harness, subagent mode, runner, curator, tests, experiments, freeze tag, and report artifacts are complete. Skills-auto had the highest evaluation mean (0.57 versus 0.33 baseline) and a large logs-eval improvement, but it used the most tokens and did not improve house-rule checks. The result is promising but not causal because no run recorded an explicit skill read and only one model/run was used. Repeated post-freeze runs would be the next validation step.
 
 ## Appendix
 
@@ -110,6 +110,7 @@ git tag freeze
 python -m lab.runner --condition baseline --tasks eval --recursion-limit 60
 python -m lab.runner --condition subagents --tasks eval --recursion-limit 60
 python -m lab.runner --condition skills-auto --tasks all --recursion-limit 60
+python -m lab.runner --condition skills-auto --tasks logs-learn --recursion-limit 100
 python scripts/verify_freeze.py
 python scripts/check_breakdown.py
 python -m lab.compare

@@ -8,5 +8,5 @@
 | logs-eval | 1/10 | 0/10 | 6/10 |
 | **Mean score - learning tasks** | 0.45 | 0.32 | 0.45 |
 | **Mean score - evaluation tasks** | 0.33 | 0.37 | 0.57 |
-| **Mean tokens per run** | 69,036 | 43,323 | 127,387 |
+| **Mean tokens per run** | 69,036 | 43,323 | 84,667 |
 | **Runs that read a skill** | 0/6 | 0/6 | 0/6 |
